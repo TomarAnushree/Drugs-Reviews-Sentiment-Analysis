@@ -1,7 +1,8 @@
 # Drugs-Reviews-Sentiment-Analysis
-<center>
+
+
 ![Word Cloud of Reviews](Wordcloud.png)
-</center>
+
 
 ## Problem Statement
 
@@ -28,6 +29,8 @@ Given the text and drug name, the task is to predict the sentiment for texts con
 For Stelara the above text is **positive** while for Remicade the above text is **negative**.
 
 ### Data Description
+
+[data source:](https://datahack.analyticsvidhya.com/contest/innoplexus-online-hiring-hackathon/)
 
 **train.csv**
 
