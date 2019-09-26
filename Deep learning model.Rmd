@@ -1,0 +1,136 @@
+---
+title: "Drug Reviews Sentiment Analysis"
+output: html_notebook
+author: "Anushree Tomar"
+---
+
+```{r Import Libraries, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(data.table)
+library(keras)
+library(tensorflow)
+library(caret)
+```
+
+#Load word embedding (previously created)
+```{r}
+train_vector_averaging<-fread("train_vector_averaging.csv")
+testing_vector_averaging<-fread("testing_vector_averaging.csv")
+finaltest_vector_averaging<-fread("finaltest_vector_averaging.csv")
+test<-fread("test_tOlRoBf.csv")
+
+train_X<-train_vector_averaging[,-51]
+train_y<-to_categorical(train_vector_averaging$sentiment)
+```
+
+
+#Keras Model building
+```{r,echo=FALSE}
+model <- keras_model_sequential() %>%
+  layer_dense(units = 128, activation = "relu",input_shape = ncol(train_X)) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 128, activation = "relu") %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 128, activation = "relu") %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 3, activation = "softmax")
+
+
+
+
+summary(model)
+
+
+
+
+```
+
+#Compile model
+
+```{r,echo=FALSE}
+
+model %>% compile(
+  optimizer = 'adam', 
+  loss = 'categorical_crossentropy',
+  metrics = c('accuracy')
+)
+
+```
+
+#Train the model 
+
+```{r,echo=FALSE}
+
+history<-model %>% fit(as.matrix(train_X), train_y, epochs =5000,batch_size=32,verbose=0,validation_split=0.3)
+
+
+```
+
+
+
+```{r,echo=FALSE}
+#plot(history)
+plot(history$metrics$loss, main="Model Loss", xlab = "epoch", ylab="loss", col="blue", type="l")
+
+# Plot the model loss of the test data
+lines(history$metrics$val_loss, col="green")
+
+# Add legend
+legend("topright", c("train","test"), col=c("blue", "green"), lty=c(1,1))
+```
+
+
+```{r,echo=FALSE}
+plot(history$metrics$acc, main="Model Accuracy", xlab = "epoch", ylab="Accuracy", col="blue", type="l")
+
+# Plot the model loss of the test data
+lines(history$metrics$val_acc, col="green")
+
+# Add legend
+legend("topright", c("train","test"), col=c("blue", "green"), lty=c(1,1))
+```
+
+```{r,echo=FALSE}
+plot(history)
+```
+
+
+#Evaluate the Model 
+
+We will check the training loss and its accuracy.
+```{r,echo=FALSE}
+score <- model %>% evaluate(as.matrix(testing_vector_averaging[,-51]), to_categorical(testing_vector_averaging$sentiment))
+
+cat('Test loss:', score$loss, "\n")
+cat('Test accuracy:', score$acc, "\n")
+#tune the parameters further to ensure the testing loss is decreasing.
+
+```
+
+```{r,echo=FALSE}
+
+predictions <- model %>% predict(as.matrix(testing_vector_averaging[,-51]))
+
+```
+
+#Predict classes
+```{r,echo=FALSE}
+class_pred <- model %>% predict_classes(as.matrix(testing_vector_averaging[,-51]))
+
+```
+
+#Confusion matrix
+```{r,echo=FALSE}
+
+confusionMatrix(factor(testing_vector_averaging$sentiment),factor(class_pred),mode = "prec_recall",positive = "1")
+
+```
+
+#Final prediction
+```{r}
+finalpred<-model %>% predict_classes(as.matrix(finaltest_vector_averaging))
+finaldata<-cbind(test$unique_hash,finalpred)
+colnames(finaldata)<-c("unique_hash","sentiment")
+write.csv(finaldata,"Drug_sentiment_model12.csv",row.names = F)
+```
+
+

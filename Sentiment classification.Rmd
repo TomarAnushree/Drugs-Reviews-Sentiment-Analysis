@@ -1,0 +1,838 @@
+---
+title: "Drug Reviews Sentiment Analysis"
+author: Anushree Tomar
+output: html_notebook
+---
+
+
+# Import libraries
+```{r Import libraries, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(text2vec)
+library(data.table)
+library(tidyr)
+library(wordcloud2)
+library(tokenizers)
+library(stopwords)
+library(glmnet)
+library(caret)
+library(tm)
+library(echarts4r)
+library(RcppArmadillo)
+library(Rcpp)
+library(DMwR)
+```
+
+# Reading data
+```{r}
+train<-fread("train_F3WbcTw.csv")
+test<-fread("test_tOlRoBf.csv")
+```
+
+#Observation of data
+```{r}
+head(train,1)
+head(test,1)
+```
+
+# Exploratory data analysis
+```{r echo=FALSE}
+Sentiments <- data.frame(sentiment=c("Positve","Negative","Neutral"), Percentage=round(prop.table(table(train$sentiment))*100,1))
+Sentiments %>% 
+  e_charts() %>% 
+  e_funnel(Percentage.Freq, sentiment) %>% 
+  e_title("Sentiments")
+```
+train data has satisfactory proportion of sentiments.
+
+# How many drugs to be analysed?
+```{r}
+trd<-data.frame(unique(train$drug))
+```
+There are 102 unique drugs in train data to be analysed for sentiments
+
+```{r}
+testd<-data.frame(unique(test[,drug]))
+```
+In the test data 95 unique drugs are present for which i have to predict sentiments.
+
+# Frequency of drugs
+```{r}
+drugs<-as.data.frame(table(train[,drug]))
+drugs<-drugs[order(-drugs$Freq),]
+# head(drugs)
+# tail(drugs)
+ggplot(drugs[c(1:15),],aes(x = reorder(Var1,Freq), y = Freq,fill=as.factor(Var1))) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()+
+  theme(legend.position = "none")+
+  #geom_text(aes(label=Freq),vjust=-0.1)+
+  theme(panel.background = element_blank(),axis.line = element_line(colour = "black"))+
+  labs(y = "Count",x = "Unique words")
+
+
+```
+
+
+# Let's examine the total sentiments associated with each drugs
+```{r}
+sentiments_drugs<-train[,list(length(sentiment)),by=list(drug,sentiment)]
+sentiments_drugs<-sentiments_drugs[,-"V1"]
+
+#table(sentiments_drugs$sentiment)
+count_sentiments<-dcast(sentiments_drugs, drug~sentiment )
+head(count_sentiments)
+# sum(count_sentiments$`2`==2,na.rm = TRUE)
+# sum(count_sentiments$`1`==1,na.rm = TRUE)
+# sum(count_sentiments$`0`==0,na.rm = TRUE)
+
+```
+
+After analyzing above data I found some drugs are miss-spelled.
+such as alectinib is miss-splelled as alectnib
+
+correct- alimta         wrong- almita
+         crizotinib            crizotnib
+         alectinib             alectnib
+         gefitinib             geftinib
+         keytruda              ketruda
+         nivolumab             nivolumabb
+         
+gilotrif and Giotrif is brand name of afatinib 
+
+so we can conclde that there are 95 unique drugs in the data. we also found that some drugs are associated with all the 3 emotions positive, negative and neutral and "NA" showing no corresponding sentiment for perticular drug.
+
+# Word cloud of drugs 
+
+Now we will see the word cloud of drugs associated with positive, negative and neutral sentiments.
+```{r}
+#subset data by sentiments
+sentiment_0<-train[sentiment==0,list(drug)]
+sentiment_1<-train[sentiment==1,list(drug)]
+sentiment_2<-train[sentiment==2,list(drug)]
+
+
+```
+
+# Drugs with Positive sentiments
+```{r}
+sentiment_0<-as.data.frame(table(sentiment_0))
+wordcloud2(sentiment_0,size = 2)
+
+```
+
+# Drugs with Negative sentiments
+```{r}
+sentiment_1<-as.data.frame(table(sentiment_1))
+wordcloud2(sentiment_1,size = 2)
+```
+
+# Drugs with Neutral sentiments
+```{r}
+sentiment_2<-as.data.frame(table(sentiment_2))
+wc<-wordcloud2(sentiment_1,size = 2)
+wc
+```
+
+# Word Cloud of reviews
+
+Now lets see what people say about the drugs.
+```{r}
+#text preprocessing
+textcleaning = function(x)                    # text data
+{ require("tm")
+  x  =  gsub("<.*?>", " ", x)               # regex for removing HTML tags
+  x  =  iconv(x, "latin1", "ASCII", sub="") # Keep only ASCII characters
+  x  =  gsub("[^[:alnum:]]", " ", x)        # keep only alpha numeric 
+  x  =  tolower(x)                          # convert to lower case characters
+  x  =  removeNumbers(x)                    # removing numbers
+  x  =  removeWords(x,stopwords("en"))      # removing stopwords
+  x  =  stemDocument(x)                     # perform stemming on reviews
+  x  =  stripWhitespace(x)                  # removing white space
+  x  =  gsub("^\\s+|\\s+$", "", x)          # remove leading and trailing white space
+  return(x)
+}
+
+#create corpus
+
+showwordcloud<-function(data){
+  cleantext<-textcleaning(data)
+  x1<-Corpus(VectorSource(cleantext))
+  dtm <- TermDocumentMatrix(x1,
+           control = list(weighting = weightTfIdf)                          )
+  #dtm1 <- TermDocumentMatrix(x1)
+  m <- as.matrix(dtm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  d <- data.frame(word = names(v),freq=v)
+  wordcloud2(d,size = 1,backgroundColor = 'black',fontFamily = 'Segoe UI')
+}
+
+# word cloud of whole corpus
+
+
+```
+
+# Word cloud of whole Reviews
+```{r}
+showwordcloud(train$text)
+```
+In the word cloud People talking about the drugs associated with cancer disease and also giving their opinion about the drugs.
+
+
+# TF-IDF Word cloud 
+
+# Positive Reviews
+```{r}
+x<-train[sentiment==0,list(text)]
+showwordcloud(x$text)
+```
+
+# Negative Reviews
+```{r}
+x<-train[sentiment==1,list(text)]
+showwordcloud(x$text)
+```
+# Neutral Reviews
+```{r}
+x<-train[sentiment==2,list(text)]
+showwordcloud(x$text)
+```
+
+# Frequently used words in  Reviews
+```{r}
+tdm<-function(data){
+  cleantext<-textcleaning(data)
+  x1<-Corpus(VectorSource(cleantext))
+  dtm <- TermDocumentMatrix(x1,
+           control = list(weighting = weightTfIdf)                          )
+  #dtm1 <- TermDocumentMatrix(x1)
+  m <- as.matrix(dtm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  d <- data.frame(word = names(v),freq=v)
+}
+
+
+```
+
+# Positive Words
+```{r}
+x<-train[sentiment==0,list(text)]
+pos<-tdm(x$text)
+ggplot(pos[1:15,], aes(x = word, y = freq,fill=word)) + 
+  geom_bar(stat = "identity") +
+  #geom_text(aes(label = word), vjust= -0.20) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+theme(panel.background = element_blank(),axis.line = element_line(colour = "black"))+
+  labs(y = "Count",x = "words")+theme(legend.position = "none")
+        
+```
+
+# Negetive words
+```{r}
+x<-train[sentiment==1,list(text)]
+pos<-tdm(x$text)
+ggplot(pos[1:15,], aes(x = word, y = freq,fill=word)) + 
+  geom_bar(stat = "identity") +
+  #geom_text(aes(label = word), vjust= -0.20) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+theme(panel.background = element_blank(),axis.line = element_line(colour = "black"))+
+  labs(y = "Count",x = "words")+theme(legend.position = "none")
+```
+
+
+# Neutral Words
+```{r}
+x<-train[sentiment==2,list(text)]
+pos<-tdm(x$text)
+ggplot(pos[1:15,], aes(x = word, y = freq,fill=word)) + 
+  geom_bar(stat = "identity") +
+  #geom_text(aes(label = word), vjust= -0.20) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+theme(panel.background = element_blank(),axis.line = element_line(colour = "black"))+
+  labs(y = "Count",x = "words")+theme(legend.position = "none")
+```
+
+# Model Building using ML
+
+# Split the data into train and test
+```{r}
+setkey(train, unique_hash)
+set.seed(2017L)
+all_ids = train$unique_hash
+train_ids = sample(all_ids, 4000)
+test_ids = setdiff(all_ids, train_ids)
+traindata<-train[J(train_ids)]
+testdata<-train[J(test_ids)]
+
+```
+
+#Create Document term matrix using itoken() function of text2vec to iterate over tokens
+
+```{r}
+traintext<-textcleaning(traindata$text)
+it_train = itoken(traintext, 
+                  tokenizer = word_tokenizer, 
+                  ids = traindata$unique_hash, 
+                  progressbar = FALSE)
+
+
+
+
+```
+
+# Create vocabulary
+
+```{r}
+stopwords<- stopwords()
+vocab = create_vocabulary(it_train)
+vocab
+```
+
+# Create DTM
+```{r}
+pruned_vocab = prune_vocabulary(vocab, 
+                                term_count_min = 10, 
+                                doc_proportion_max = 0.5,
+                                doc_proportion_min = 0.001)
+
+vectorizer = vocab_vectorizer(pruned_vocab)
+```
+
+```{r}
+dtm_train = create_dtm(it_train, vectorizer)
+dim(dtm_train)
+#colnames(dtm_train)
+identical(rownames(dtm_train), traindata$unique_hash)
+
+```
+
+#logistic regression model
+```{r}
+# fit a logistic regression model with an L1 penalty and 5 fold cross-validation.
+
+NFOLDS = 5
+
+glmnet_classifier = cv.glmnet(x = dtm_train, y = traindata[['sentiment']], 
+                              family = 'multinomial', 
+                              # L1 penalty
+                              alpha = 1,
+                              # interested in the missclassification error
+                              type.measure = "mae",
+                              # 5-fold cross-validation
+                              nfolds = NFOLDS,
+                              # high value is less accurate, but has faster training
+                              thresh = 1e-3,
+                              # again lower number of iterations for faster training
+                              maxit = 1e3)
+plot(glmnet_classifier)
+
+
+```
+
+```{r}
+print(paste("min error =", round(min(glmnet_classifier$cvm), 4)))
+print(paste("max error =", round(max(glmnet_classifier$cvm), 4)))
+
+```
+
+# Testdata pre-processing
+
+```{r}
+testtext<-textcleaning(testdata$text)
+it_test = itoken(testtext, 
+                  preprocessor = tolower, 
+                  tokenizer = word_tokenizer, 
+                  ids = testdata$unique_hash, 
+                  progressbar = FALSE)
+
+```
+
+# create dtm
+
+```{r}
+dtm_test = create_dtm(it_test, vectorizer)
+dim(dtm_test)
+identical(rownames(dtm_test), testdata$unique_hash)
+```
+
+#Evaluate Model performance
+
+```{r}
+preds = as.data.frame(predict(glmnet_classifier, dtm_test, type = 'class'))
+#table(preds$`1`)
+
+```
+
+```{r}
+confusionMatrix(factor(testdata$sentiment),factor(preds$`1`),mode = 'everything')
+```
+
+# N-grams model
+
+```{r}
+vocab = create_vocabulary(it_train, ngram = c(1L, 2L))
+
+vocab = prune_vocabulary(vocab, term_count_min = 10, 
+                         doc_proportion_max = 0.5)
+
+bigram_vectorizer = vocab_vectorizer(vocab)
+
+dtm_train = create_dtm(it_train, bigram_vectorizer)
+```
+
+
+```{r}
+
+glmnet_classifier = cv.glmnet(x = dtm_train, y = traindata[['sentiment']], 
+                              family = 'multinomial', 
+                              alpha = 1,
+                              type.measure = "mae",
+                              nfolds = 4,
+                              thresh = 1e-3,
+                              maxit = 1e3)
+
+```
+
+
+```{r}
+plot(glmnet_classifier)
+print(paste("max error =", round(max(glmnet_classifier$cvm), 4)))
+print(paste("min error =", round(min(glmnet_classifier$cvm), 4)))
+
+
+```
+
+#Evaluate Model performance
+
+```{r}
+dtm_test = create_dtm(it_test, bigram_vectorizer)
+preds = predict.cv.glmnet(glmnet_classifier, dtm_test, type = 'class')[,1]
+preds<-as.data.frame(preds)
+```
+
+```{r}
+# precision<-TP/(TP+FP)
+# recall=TP/(TP+FN)
+# sensitivity  = TP / (TP+FN)
+# specificity  = TN / (TN+FP)
+confusionMatrix(factor(testdata$sentiment),factor(preds$preds),mode='everything')
+```
+
+```{r}
+#Process newdata using same preprocessing,tokenization and vectorization function then make
+#pridiction using best model
+newtext<-textcleaning(test$text)
+it_newtest = itoken(newtext, 
+                    tokenizer = word_tokenizer, 
+                    ids = test$id, 
+                    progressbar = FALSE)
+
+dtm_newtest = create_dtm(it_newtest, bigram_vectorizer)
+predsnew <-predict(glmnet_classifier, dtm_newtest, type = 'class')[,1]
+predsnew<-as.data.frame(predsnew)
+names(predsnew)[1]<-paste("sentiment") 
+submission<-cbind(test$unique_hash,predsnew$sentiment)
+submission<-as.data.frame(submission)
+colnames(submission)<-c("unique_hash","sentiment") 
+#write.csv(submission,"sentimentsTestData.csv",row.names = FALSE)
+```
+
+
+# Feature Hashing
+```{r}
+
+#fast and space-efficient way of vectorizing features, i.e. turning arbitrary features into indices in a vector or matrix.
+#It works by applying a hash function to the features and using their hash values as indices directly,
+
+h_vectorizer = hash_vectorizer(hash_size = 2 ^ 14, ngram = c(1L, 2L))
+
+dtm_train = create_dtm(it_train, h_vectorizer)
+
+glmnet_classifier = cv.glmnet(x = dtm_train, y = traindata[['sentiment']], 
+                              family = 'multinomial', 
+                              alpha = 1,
+                              type.measure = "mae",
+                              nfolds = 4,
+                              thresh = 1e-3,
+                              maxit = 1e3)
+
+
+
+```
+
+```{r}
+plot(glmnet_classifier)
+
+```
+
+```{r}
+print(paste("min error =", round(min(glmnet_classifier$cvm), 4)))
+
+dtm_test = create_dtm(it_test, h_vectorizer)
+
+preds = predict(glmnet_classifier, dtm_test , type = 'class')[, 1]
+preds<-as.data.frame(preds)
+```
+
+```{r}
+confusionMatrix(factor(testdata$sentiment),factor(preds$preds),mode = 'everything')
+```
+
+# sentiment Analysis with TF-IDF
+
+# Text preprocessing
+```{r}
+tokens = textcleaning(traindata$text) %>% word_tokenizer()
+```
+
+
+# Create Document term matrix using itoken() function of text2vec to iterate over tokens
+
+```{r}
+
+it_train = itoken(tokens,
+                  ids = traindata$unique_hash,
+                  progressbar = FALSE)
+
+```
+
+#TF-IDF
+
+Used to find unique terms in the document and the degree of uniquness used as weight to normalize document so that less common word got more weights.
+```{r}
+#create vocabulary
+vocab = create_vocabulary(it_train)
+
+```
+
+```{r}
+#vectorization of vocubalary 
+vectorizer = vocab_vectorizer(vocab)
+
+DTM_train = create_dtm(it_train, vectorizer)
+class(DTM_train)
+```
+# Define TF-IDF model
+```{r}
+tf_idf = TfIdf$new()
+```
+
+# Fit-transform the tf-idf on DTM of training data 
+```{r}
+DTM_train_tfidf = fit_transform(DTM_train, tf_idf)
+
+```
+
+# Apply pre-trained tf-idf transformation to test data
+```{r}
+tokens = textcleaning(testdata$text)%>% word_tokenizer()
+
+it_test = itoken(tokens, ids = testdata$unique_hash, 
+                  progressbar = FALSE)
+
+
+
+DTM_test  = create_dtm(it_test, vectorizer) 
+
+DTM_test_tfidf<-transform(DTM_test,tf_idf)
+```
+
+
+# Model building
+
+# glmnet classifier
+```{r}
+
+glmnet_classifier = cv.glmnet(
+  x = DTM_train_tfidf, 
+  y = traindata$sentiment,
+  family = 'multinomial', 
+  alpha = 1,
+  type.measure = "mae",
+  alignment = "fraction",
+  nfolds = 4,
+  thresh = 1e-3,
+  maxit = 1e3)
+
+```
+
+```{r}
+plot(glmnet_classifier)
+```
+
+# Mean absolute error
+```{r}
+print(paste("min error =", round(min(glmnet_classifier$cvm), 4)))
+print(paste("max error =", round(max(glmnet_classifier$cvm), 4)))
+
+
+```
+
+# Evaluate Model performance
+```{r}
+preds = as.data.frame(predict(glmnet_classifier, DTM_test_tfidf, type = 'class'))
+
+
+```
+
+# Confusion matrix
+```{r}
+confusionMatrix(factor(testdata$sentiment),factor(preds$`1`),mode='everything')
+```
+
+
+# submission model2
+```{r}
+#saveRDS(glmnet_classifier, file = "glmnet_classifier.rds")##0.2150538 F1
+#bst1<-readRDS(file = "glmnet_classifier.rds")
+
+#Prediction on final data
+finaltokens = textcleaning(test$text)%>% word_tokenizer()
+
+it_finaltest = itoken(finaltokens, ids = test$unique_hash, progressbar = FALSE)
+
+DTM_finaltest  = create_dtm(it_finaltest, vectorizer)
+
+preds<- as.data.frame(predict(glmnet_classifier, DTM_finaltest, type = 'class'))
+finaldata<-as.data.frame(cbind(test$unique_hash,preds$`1`))
+colnames(finaldata)<-c("unique_hash","sentiment")
+#write.csv(finaldata,"Drug_sentiment_model3.csv",row.names = F)#0.025F1model2
+```
+
+
+
+# XGBoost model
+```{r}
+params <- list(booster = "gbtree",eta=0.6, max_depth=5, min_child_weight=2, subsample=0.5, colsample_bytree=1,gamma=5)
+
+xgb = xgboost(params = params,
+  data = DTM_train_tfidf, 
+  label = traindata$sentiment, 
+  nrounds = 250,
+  num_class = 3,
+  objective = "multi:softmax")
+```
+
+# Evaluate Model performance
+```{r}
+preds = as.data.frame(predict(xgb, DTM_test_tfidf, type = 'class'))
+
+```
+# Classification matrix of predicted and actual class
+```{r}
+confusionMatrix(factor(testdata$sentiment),factor(preds$`predict(xgb, DTM_test_tfidf, type = "class")`),mode='everything')
+
+```
+
+#save best model
+```{r}
+#xgb.save(xgb, 'xgb_22_F1.model')
+
+#final prediction
+DTM_finaltest  = create_dtm(it_finaltest, vectorizer) 
+
+
+preds = as.data.frame(predict(xgb, DTM_finaltest, type = 'class'))
+finaldata<-as.data.frame(cbind(test$unique_hash,preds$`predict(xgb, DTM_finaltest, type = "class")`))
+colnames(finaldata)<-c("unique_hash","sentiment")
+#write.csv(finaldata,"Drug_sentiment_model1.csv",row.names = F)
+#0.313166216054303 score
+```
+
+
+# XGboost with cross validation
+```{r}
+dtrain <- xgb.DMatrix(DTM_train_tfidf, label=traindata$sentiment)
+dtest <- xgb.DMatrix(DTM_test_tfidf, label=testdata$sentiment)
+
+params <- list(booster = "gbtree", objective = "multi:softmax", eta=0.5, max_depth=5, min_child_weight=2, subsample=0.5, colsample_bytree=1,num_class=3,gamma=3)
+#.23 at 600 round
+xgb1 <- xgb.train (params = params, data = dtrain, nrounds = 600, watchlist = list(val=dtest,train=dtrain), print_every_n = 10, early_stop_round = 10, maximize = F , eval_metric = "merror")
+
+```
+
+
+# Model Evaluation
+```{r,echo=FALSE}
+#model prediction
+ xgbpred <- predict (xgb1,dtest)
+ 
+```
+
+
+# Classification matrix of predicted and actual class
+```{r}
+xgbpred<-as.data.frame(xgbpred)
+confusionMatrix(factor(testdata$sentiment),factor(xgbpred$xgbpred),mode="everything")
+```
+
+# save model
+```{r}
+#model4
+#xgb.save(xgb, 'xgb_22_F1.model')
+
+
+```
+
+#Deeplearnig Approach to sentiment analysis
+
+# word embedding
+```{r}
+#we dont need to clean text
+tokens = traindata$text %>% tolower %>% removeNumbers()%>%stripWhitespace() %>%word_tokenizer()
+it = itoken(tokens)
+v = create_vocabulary(it) %>% prune_vocabulary(term_count_min=10)
+vectorizer = vocab_vectorizer(v)
+tcm = create_tcm(it, vectorizer)
+print(dim(tcm))
+```
+
+fit the word embeddings using GloVe 
+```{r}
+# fit model and get word vectors
+model = GlobalVectors$new(word_vectors_size=50, vocabulary=v, x_max=10, learning_rate=0.20)
+modelnew<-model$fit_transform(tcm,n_iter=25)
+word_vectors_context = model$components
+word_vectors = modelnew + t(word_vectors_context)
+word_vectors<-as.data.frame(word_vectors)
+word_vectors$word<-row.names(word_vectors)
+#write.csv(word_vectors,"word_vectors.csv",row.names = FALSE)
+
+```
+
+
+# Model buliding using these word vectors
+
+
+
+```{r}
+# VECTOR AVERAGING
+#change version of R to 3.4.4 or 3.6.1
+sourceCpp("converter.cpp")#3,4,4 version need
+
+```
+
+#Traindata processing
+```{r}
+
+d<-textcleaning(traindata$text)%>% word_tokenizer()
+# d=NULL
+# d=strsplit(traindata$text," ")
+# for(i in 1:nrow(traindata))
+# {
+#   d[[i]]=gsub("^\\s+|\\s+$", "",d[[i]])
+# }
+```
+
+```{r}
+#import word vectors
+
+training_data=get_average_vectors(d,matrix(as.numeric(unlist(word_vectors[,1:50])),nrow=nrow(word_vectors)),word_vectors$word,stopwords())
+
+training_data=as.data.frame(training_data)
+training_data$sentiment=traindata$sentiment
+#write.csv(training_data,"train_vector_averaging.csv",row.names = F)
+
+```
+
+#Process test data
+```{r}
+d<-textcleaning(testdata$text)%>%word_tokenizer()
+```
+
+```{r}
+testing_data=get_average_vectors(d,matrix(as.numeric(unlist(word_vectors[,1:50])),nrow=nrow(word_vectors)),word_vectors$word,stopwords())
+
+testing_data=as.data.frame(testing_data)
+testing_data$sentiment=testdata$sentiment
+#write.csv(testing_data,"testing_vector_averaging.csv",row.names = F)
+
+```
+
+#Process final test data
+```{r}
+d<-textcleaning(test$text)%>%word_tokenizer()
+
+```
+
+```{r}
+finaltest_data=get_average_vectors(d,matrix(as.numeric(unlist(word_vectors[,1:50])),nrow=nrow(word_vectors)),word_vectors$word,stopwords())
+
+finaltest_data=as.data.frame(finaltest_data)
+
+#write.csv(finaltest_data,"finaltest_vector_averaging.csv",row.names = F)
+
+```
+
+#Applying smote
+```{r}
+training_data$sentiment<-as.factor(training_data$sentiment)
+newData <- SMOTE(sentiment ~ ., training_data, perc.over = 600,perc.under=100)
+table(newData$sentiment)
+
+```
+
+
+
+#Perform xgboost
+```{r}
+params <- list(booster = "gbtree",eta=0.5, max_depth=8, min_child_weight=2, subsample=.6, colsample_bytree=1,gamma=7)
+
+# xgb = xgboost(params = params,
+#   data = as.matrix(training_data[,-51]), 
+#   label = as.matrix(training_data$sentiment), 
+#   nrounds = 1000,
+#   num_class = 3,
+#   objective = "multi:softmax")
+
+
+xgb = xgboost(params = params,
+  data = as.matrix(newData[,-51]), 
+  label = as.matrix(newData$sentiment), 
+  nrounds = 2000,
+  num_class = 3,
+  objective = "multi:softmax")
+```
+
+```{r}
+preds = as.data.frame(predict(xgb, as.matrix(testing_data[,-51]), type = 'class'))
+
+finalpred<-as.data.frame(predict(xgb, as.matrix(finaltest_data), type = 'class'))
+finaldata<-cbind(test$unique_hash,finalpred$`predict(xgb, as.matrix(finaltest_data), type = "class")`)
+colnames(finaldata)<-c("unique_hash","sentiment")
+#write.csv(finaldata,"Drug_sentiment_model6.csv",row.names = F)#F1=0.3484772670 model=.22,train-merror:0.048342
+#train-merror:0.051935 f1=26,but less 33
+```
+
+```{r}
+
+confusionMatrix(table(testing_data$sentiment,preds$`predict(xgb, as.matrix(testing_data[, -51]), type = "class")`),mode="prec_recall")
+```
+
+
+# XGboost with cross validation
+```{r}
+dtrain <- xgb.DMatrix(as.matrix(newData[,-51]), label=as.matrix(newData$sentiment))
+dtest <- xgb.DMatrix(as.matrix(testing_data[,-51]), label=as.matrix(testing_data$sentiment))
+
+ params <- list(booster = "gbtree", objective = "multi:softmax", eta=0.6, max_depth=6, min_child_weight=2, subsample=.5, colsample_bytree=1,num_class=3,gamma=7)
+
+xgb1 <- xgb.train (params = params, data = dtrain, nrounds = 8000, watchlist = list(val=dtest,train=dtrain), print_every_n = 10, early_stop_round = 10, maximize = F , eval_metric = "merror")
+
+```
+
+```{r}
+preds = as.data.frame(predict(xgb1, as.matrix(testing_data[,-51]), type = 'class'))
+
+finalpred<-as.data.frame(predict(xgb1, as.matrix(finaltest_data), type = 'class'))
+finaldata<-cbind(test$unique_hash,finalpred$`predict(xgb1, as.matrix(finaltest_data), type = "class")`)
+colnames(finaldata)<-c("unique_hash","sentiment")#0.2635379 F1
+#write.csv(finaldata,"Drug_sentiment_model7.csv",row.names = F)#F1=0.3484772670 model=.22,train-merror:0.048342
+
+
+```
+
+```{r}
+
+confusionMatrix(table(testing_data$sentiment,preds$`predict(xgb1, as.matrix(testing_data[, -51]), type = "class")`),mode="prec_recall")
+```
+
+
+
