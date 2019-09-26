@@ -1,7 +1,8 @@
 # Drugs-Reviews-Sentiment-Analysis
 <center>
-![](Wordcloud.png)
+![Word Cloud of Reviews](Wordcloud.png)
 </center>
+
 ## Problem Statement
 
 ### Sentiment Analysis for drugs/medicines
